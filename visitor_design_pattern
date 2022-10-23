@@ -1,0 +1,693 @@
+import 'dart:collection';
+import 'dart:io';
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+void main() {
+  runApp(const MaterialApp(
+    home: Scaffold(
+      body: VisitorExample(),
+    ),
+  ));
+}
+
+/// Interface for both [File] and [Directory] classes.
+abstract class IFile {
+  int getSize();
+
+  /// Renders the component UI.
+  Widget render(BuildContext context);
+
+  /// Delegates request to a visitor.
+  ///
+  /// Is used for the Visitor design pattern implementation.
+  String accept(IVisitor visitor);
+}
+
+abstract class File extends StatelessWidget implements IFile {
+  final String title;
+  final String fileExtension;
+  final IconData icon;
+  final int size;
+
+  const File({
+    super.key,
+    required this.title,
+    required this.fileExtension,
+    required this.size,
+    required this.icon,
+  });
+
+  @override
+  int getSize() => size;
+
+  @override
+  Widget render(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(left: 12.0),
+        child: ListTile(
+          title: Text(
+            '$title.$fileExtension',
+            style: Theme.of(context).textTheme.bodyText1,
+          ),
+          dense: true,
+          leading: Icon(icon),
+          trailing: Text(
+            FileSizeConverter.bytesToString(size.toDouble()),
+            style: Theme.of(context)
+                .textTheme
+                .bodyText2!
+                .copyWith(color: Colors.black54),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return render(context);
+  }
+}
+
+class FileSizeConverter {
+  static String bytesToString(double size) {
+    final listString = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var count = 0;
+    while (size ~/ 1024 > 0) {
+      count++;
+      size = size / 1024;
+    }
+    return '${size.toStringAsFixed(2)} ${listString[count]}';
+  }
+}
+
+class AudioFile extends File {
+  final String albumTitle;
+
+  const AudioFile(
+      {super.key,
+      required this.albumTitle,
+      required super.title,
+      required super.fileExtension,
+      required super.size})
+      : super(icon: Icons.music_note);
+
+  @override
+  String accept(IVisitor visitor) {
+    return visitor.visitAudioFile(this);
+  }
+}
+
+class ImageFile extends File {
+  final String resolution;
+
+  const ImageFile({
+    super.key,
+    required this.resolution,
+    required super.title,
+    required super.fileExtension,
+    required super.size,
+  }) : super(icon: Icons.image);
+
+  @override
+  String accept(IVisitor visitor) {
+    return visitor.visitImageFile(this);
+  }
+}
+
+class TextFile extends File {
+  final String content;
+  const TextFile({
+    super.key,
+    required this.content,
+    required super.title,
+    required super.fileExtension,
+    required super.size,
+  }) : super(icon: Icons.description);
+
+  @override
+  String accept(IVisitor visitor) {
+    return visitor.visitTextFile(this);
+  }
+}
+
+class VideoFile extends File {
+  final String directedBy;
+
+  const VideoFile({
+    super.key,
+    required this.directedBy,
+    required super.title,
+    required super.fileExtension,
+    required super.size,
+  }) : super(icon: Icons.movie);
+
+  @override
+  String accept(IVisitor visitor) {
+    return visitor.visitVideoFile(this);
+  }
+}
+
+class Directory extends StatelessWidget implements IFile {
+  final List<IFile> _files = [];
+  final String title;
+  final int level;
+  final bool isInitiallyExpanded;
+
+  Directory(
+      {super.key,
+      required this.title,
+      required this.level,
+      this.isInitiallyExpanded = false});
+
+  List<IFile> get files => UnmodifiableListView(_files);
+
+  void addFile(IFile file) => _files.add(file);
+
+  @override
+  int getSize() {
+    var sum = 0;
+    for (final file in _files) {
+      sum += file.getSize();
+    }
+    return sum;
+  }
+
+  @override
+  Widget render(BuildContext context) {
+    return Theme(
+      data: ThemeData(),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12.0),
+        child: ExpansionTile(
+          leading: const Icon(Icons.folder),
+          title: Text(
+              '$title (${FileSizeConverter.bytesToString(getSize().toDouble())})'),
+          initiallyExpanded: isInitiallyExpanded,
+          children: _files.map((IFile file) => file.render(context)).toList(),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return render(context);
+  }
+
+  @override
+  String accept(IVisitor visitor) {
+    return visitor.visitDirectory(this);
+  }
+}
+
+extension FormattingExtension on String {
+  /// Adds `nTab` tabs at the beginning and
+  /// a new line symbol at the end of a String.
+  String indentAndAddNewLine(int nTabs) => '${'\t' * nTabs}$this\n';
+}
+
+/// A class that defines visiting method for [IFile] implementors.
+/// Defines methods to be implemented by all specific visitor.
+abstract class IVisitor {
+  String getTitle();
+
+  String visitDirectory(Directory directory);
+
+  String visitAudioFile(AudioFile file);
+
+  String visitImageFile(ImageFile file);
+
+  String visitTextFile(TextFile file);
+
+  String visitVideoFile(VideoFile file);
+}
+
+class XmlVisitor implements IVisitor {
+  @override
+  String getTitle() => 'Export as XML';
+  @override
+  String visitAudioFile(AudioFile file) {
+    final fileInfo = <String, String>{
+      'title': file.title,
+      'album': file.albumTitle,
+      'extension': file.fileExtension,
+      'size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+
+    return _formatFile('audio', fileInfo);
+  }
+
+  @override
+  String visitDirectory(Directory directory) {
+    final isRootDirectory = directory.level == 0;
+    final buffer = StringBuffer();
+    if (isRootDirectory) {
+      buffer.write('<Files>\n');
+    }
+
+    for (final file in directory.files) {
+      buffer.write(file.accept(this));
+    }
+
+    if (isRootDirectory) {
+      buffer.write('</Files>\n');
+    }
+    return buffer.toString();
+  }
+
+  @override
+  String visitImageFile(ImageFile file) {
+    final fileInfo = <String, String>{
+      'title': file.title,
+      'resolution': file.resolution,
+      'extension': file.fileExtension,
+      'size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+
+    return _formatFile('image', fileInfo);
+  }
+
+  @override
+  String visitTextFile(TextFile file) {
+    final fileContentPreview = file.content.length > 30
+        ? '${file.content.substring(0, 30)}...'
+        : file.content;
+
+    final fileInfo = <String, String>{
+      'title': file.title,
+      'preview': fileContentPreview,
+      'extension': file.fileExtension,
+      'size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+
+    return _formatFile('text', fileInfo);
+  }
+
+  @override
+  String visitVideoFile(VideoFile file) {
+    final fileInfo = <String, String>{
+      'title': file.title,
+      'directed_by': file.directedBy,
+      'extension': file.fileExtension,
+      'size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+
+    return _formatFile('video', fileInfo);
+  }
+
+  String _formatFile(String type, Map<String, String> fileInfo) {
+    final buffer = StringBuffer();
+
+    buffer.write('<$type>'.indentAndAddNewLine(2));
+    for (final entry in fileInfo.entries) {
+      buffer.write(
+          '<${entry.key}>${entry.value}</${entry.key}>'.indentAndAddNewLine(2));
+    }
+    buffer.write('<$type>'.indentAndAddNewLine(2));
+    return buffer.toString();
+  }
+}
+
+/// Implements the specific visitor that provides
+/// file information of each file type in a human-readable
+/// format.
+class HumanReadableVisitor implements IVisitor {
+  String _formatFile(String type, Map<String, String> fileInfo) {
+    final buffer = StringBuffer();
+    buffer.write('$type \n');
+    for (final entry in fileInfo.entries) {
+      buffer.write('${entry.key}:${entry.value}'.indentAndAddNewLine(2));
+    }
+    return buffer.toString();
+  }
+
+  @override
+  String getTitle() => 'Export as text';
+
+  @override
+  String visitAudioFile(AudioFile file) {
+    final fileInfo = <String, String>{
+      'Type': 'Audio',
+      'Album': file.albumTitle,
+      'Extension': file.fileExtension,
+      'Size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+    return _formatFile(file.title, fileInfo);
+  }
+
+  @override
+  String visitDirectory(Directory directory) {
+    final bufferString = StringBuffer();
+    for (final file in directory.files) {
+      bufferString.write(file.accept(this));
+    }
+    return bufferString.toString();
+  }
+
+  @override
+  String visitImageFile(ImageFile file) {
+    final fileInfo = <String, String>{
+      'Type': 'Image',
+      'Resolution': file.resolution,
+      'Extension': file.fileExtension,
+      'Size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+
+    return _formatFile(file.title, fileInfo);
+  }
+
+  @override
+  String visitTextFile(TextFile file) {
+    final fileContentPreview = file.content.length > 30
+        ? '${file.content.substring(0, 30)}...'
+        : file.content;
+
+    final fileInfo = <String, String>{
+      'Type': 'Text',
+      'Preview': fileContentPreview,
+      'Extension': file.fileExtension,
+      'Size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+    return _formatFile(file.title, fileInfo);
+  }
+
+  @override
+  String visitVideoFile(VideoFile file) {
+    final fileInfo = <String, String>{
+      'Type': 'Video',
+      'Directed by': file.directedBy,
+      'Extension': file.fileExtension,
+      'Size': FileSizeConverter.bytesToString(file.getSize().toDouble()),
+    };
+
+    return _formatFile(file.title, fileInfo);
+  }
+}
+
+/// A client class that contains a list of visitors implementing
+/// the [IVisitor] interface and the composite file structure.
+///
+/// The selected visitor is used to format the visible file
+/// structure as text and provide it to the UI.
+class VisitorExample extends StatefulWidget {
+  const VisitorExample({Key? key}) : super(key: key);
+
+  @override
+  State<VisitorExample> createState() => _VisitorExampleState();
+}
+
+class _VisitorExampleState extends State<VisitorExample> {
+  final List<IVisitor> visitorsList = [
+    HumanReadableVisitor(),
+    XmlVisitor(),
+  ];
+  late final IFile _rootDirectory;
+  int _selectedVisitorIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _rootDirectory = _buildMediaDirectory();
+  }
+
+  IFile _buildMediaDirectory() {
+    final musicDirectory = Directory(
+      title: 'Music',
+      level: 1,
+    );
+    musicDirectory.addFile(
+      const AudioFile(
+        title: 'Darude - Sandstorm',
+        albumTitle: 'Before the Storm',
+        fileExtension: 'mp3',
+        size: 2612453,
+      ),
+    );
+    musicDirectory.addFile(
+      const AudioFile(
+        title: 'Toto - Africa',
+        albumTitle: 'Toto IV',
+        fileExtension: 'mp3',
+        size: 3219811,
+      ),
+    );
+    musicDirectory.addFile(
+      const AudioFile(
+        title: 'Bag Raiders - Shooting Stars',
+        albumTitle: 'Bag Raiders',
+        fileExtension: 'mp3',
+        size: 3811214,
+      ),
+    );
+
+    final moviesDirectory = Directory(
+      title: 'Movies',
+      level: 1,
+    );
+    moviesDirectory.addFile(
+      const VideoFile(
+        title: 'The Matrix',
+        directedBy: 'The Wachowskis',
+        fileExtension: 'avi',
+        size: 951495532,
+      ),
+    );
+    moviesDirectory.addFile(
+      const VideoFile(
+        title: 'Pulp Fiction',
+        directedBy: 'Quentin Tarantino',
+        fileExtension: 'mp4',
+        size: 1251495532,
+      ),
+    );
+
+    final catPicturesDirectory = Directory(
+      title: 'Cats',
+      level: 2,
+    );
+    catPicturesDirectory.addFile(
+      const ImageFile(
+        title: 'Cat 1',
+        resolution: '640x480px',
+        fileExtension: 'jpg',
+        size: 844497,
+      ),
+    );
+    catPicturesDirectory.addFile(
+      const ImageFile(
+        title: 'Cat 2',
+        resolution: '1280x720px',
+        fileExtension: 'jpg',
+        size: 975363,
+      ),
+    );
+    catPicturesDirectory.addFile(
+      const ImageFile(
+        title: 'Cat 3',
+        resolution: '1920x1080px',
+        fileExtension: 'png',
+        size: 1975363,
+      ),
+    );
+
+    final picturesDirectory = Directory(
+      title: 'Pictures',
+      level: 1,
+    );
+    picturesDirectory.addFile(catPicturesDirectory);
+    picturesDirectory.addFile(
+      const ImageFile(
+        title: 'Not a cat',
+        resolution: '2560x1440px',
+        fileExtension: 'png',
+        size: 2971361,
+      ),
+    );
+
+    final mediaDirectory = Directory(
+      title: 'Media',
+      level: 0,
+      isInitiallyExpanded: true,
+    );
+    mediaDirectory.addFile(musicDirectory);
+    mediaDirectory.addFile(moviesDirectory);
+    mediaDirectory.addFile(picturesDirectory);
+    mediaDirectory.addFile(
+      Directory(
+        title: 'New Folder',
+        level: 1,
+      ),
+    );
+    mediaDirectory.addFile(
+      const TextFile(
+        title: 'Nothing suspicious there',
+        content: 'Just a normal text file without any sensitive information.',
+        fileExtension: 'txt',
+        size: 430791,
+      ),
+    );
+    mediaDirectory.addFile(
+      const TextFile(
+        title: 'TeamTrees',
+        content:
+            'Team Trees, also known as #teamtrees, is a collaborative fundraiser that managed to raise 20 million U.S. dollars before 2020 to plant 20 million trees.',
+        fileExtension: 'txt',
+        size: 1042,
+      ),
+    );
+
+    return mediaDirectory;
+  }
+
+  void _setSelectedVisitorIndex(int? index) {
+    setState(() {
+      _selectedVisitorIndex = index!;
+    });
+  }
+
+  void _showFilesDialog() {
+    final selectedVisitor = visitorsList[_selectedVisitorIndex];
+    final filesText = _rootDirectory.accept(selectedVisitor);
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => FilesDialog(
+        filesText: filesText,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollConfiguration(
+      behavior: const ScrollBehavior(),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12.0,
+        ),
+        child: Column(
+          children: [
+            FilesVisitorSelection(
+              visitorsList: visitorsList,
+              selectedIndex: _selectedVisitorIndex,
+              onChanged: _setSelectedVisitorIndex,
+            ),
+            PlatformButton(
+              materialColor: Colors.black,
+              materialTextColor: Colors.white,
+              onPressed: _showFilesDialog,
+              text: 'Export files',
+            ),
+            const SizedBox(height: 12.0),
+            _rootDirectory.render(context),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class FilesVisitorSelection extends StatelessWidget {
+  final List<IVisitor> visitorsList;
+  final int selectedIndex;
+  final ValueSetter<int?> onChanged;
+
+  const FilesVisitorSelection({
+    super.key,
+    required this.visitorsList,
+    required this.selectedIndex,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        for (var i = 0; i < visitorsList.length; i++)
+          RadioListTile(
+            title: Text(visitorsList[i].getTitle()),
+            value: i,
+            groupValue: selectedIndex,
+            selected: i == selectedIndex,
+            activeColor: Colors.black,
+            onChanged: onChanged,
+          ),
+      ],
+    );
+  }
+}
+
+class PlatformButton extends StatelessWidget {
+  final String text;
+  final Color materialColor;
+  final Color materialTextColor;
+  final VoidCallback? onPressed;
+
+  const PlatformButton({
+    super.key,
+    required this.text,
+    required this.materialColor,
+    required this.materialTextColor,
+    this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(4.0),
+      child: kIsWeb || Platform.isAndroid
+          ? MaterialButton(
+              color: materialColor,
+              textColor: materialTextColor,
+              disabledColor: Colors.grey,
+              disabledTextColor: Colors.white,
+              onPressed: onPressed,
+              child: Text(text, textAlign: TextAlign.center),
+            )
+          : CupertinoButton(
+              color: Colors.black,
+              onPressed: onPressed,
+              child: Text(text, textAlign: TextAlign.center),
+            ),
+    );
+  }
+}
+
+class FilesDialog extends StatelessWidget {
+  final String filesText;
+
+  const FilesDialog({
+    super.key,
+    required this.filesText,
+  });
+
+  void closeDialog(BuildContext context) {
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Files'),
+      content: ScrollConfiguration(
+        behavior: const ScrollBehavior(),
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Text(filesText),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        PlatformButton(
+          materialColor: Colors.black,
+          materialTextColor: Colors.white,
+          onPressed: () => closeDialog(context),
+          text: 'Close',
+        ),
+      ],
+    );
+  }
+}
