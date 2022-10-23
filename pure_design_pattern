@@ -1,0 +1,60 @@
+abstract class Visitor {
+  void visitA(ElementA elementA);
+  void visitB(ElementB elementB);
+}
+
+class ConcreteVisitor implements Visitor {
+  @override
+  void visitA(ElementA elementA) {
+    elementA.featureA();
+    elementA.featureA();
+    elementA.featureA();
+    elementA.featureA();
+    elementA.featureB();
+  }
+
+  @override
+  void visitB(ElementB elementB) {
+    elementB.featureB();
+  }
+}
+
+abstract class Element {
+  void accept(Visitor visitor);
+}
+
+class ElementA implements Element {
+  @override
+  void accept(Visitor visitor) {
+    visitor.visitA(this);
+  }
+
+  void featureA() {
+    // Complex calculations
+    print('featureA');
+  }
+
+  void featureB() {
+    // Complex calculations
+    print('featureA');
+  }
+}
+
+class ElementB implements Element {
+  void featureB() {
+    print('featureB');
+  }
+
+  @override
+  void accept(Visitor visitor) {
+    visitor.visitB(this);
+  }
+}
+
+class Client {
+  final concreteVisitor = ConcreteVisitor();
+  final elementA = ElementA();
+  void accept() {
+    elementA.accept(concreteVisitor);
+  }
+}
